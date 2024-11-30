@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Quiz Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+
+        .container {
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .quiz-question {
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+
+        #quiz-results {
+            background-color: #2a2a2a;
+            border-radius: 5px;
+            padding: 15px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        input[type="number"], select, input[type="file"] {
+            background-color: #2a2a2a;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        input[type="radio"] {
+            accent-color: #4CAF50;
+        }
+
+        label {
+            margin: 5px 0;
+            display: block;
+        }
+
+        #loading {
+            color: #4CAF50;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Quiz Generator</h1>
+        
+        <div id="pdf-upload">
+            <input type="file" id="file-input" accept=".pdf">
+            <button onclick="extractText()">Extract Text</button>
+            <p id="loading">Extracting text... Please wait</p>
+        </div>
+
+        <div id="quiz-generator" style="display:none;">
+            <h2>Quiz Generation Settings</h2>
+            <div>
+                <label>Number of Questions: 
+                    <input type="number" id="question-count" min="1" max="20" value="5">
+                </label>
+            </div>
+            <div>
+                <label>Question Type: 
+                    <select id="question-type">
+                        <option value="multiple-choice">Multiple Choice</option>
+                        <option value="true-false">True/False</option>
+                    </select>
+                </label>
+            </div>
+            <button onclick="generateQuiz()">Generate Quiz</button>
+        </div>
+
+        <div id="generated-quiz"></div>
+        <div id="quiz-results" style="display:none;"></div>
+    </div>
+
+    <script>
+        // Ensure PDF.js is loaded
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        }
+
+        let extractedText = '';
+        let quizQuestions = [];
+
+        // Improved PDF Text Extraction
+        async function extractText() {
+            const fileInput = document.getElementById('file-input');
+            const loadingIndicator = document.getElementById('loading');
+            const quizGenerator = document.getElementById('quiz-generator');
+            
+            // Reset previous state
+            extractedText = '';
+            quizGenerator.style.display = 'none';
+
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a PDF file');
+                return;
+            }
+
+            // Show loading indicator
+            loadingIndicator.style.display = 'block';
+
+            try {
+                // Verify PDF.js is available
+                if (typeof pdfjsLib === 'undefined') {
+                    throw new Error('PDF.js library not loaded. Please refresh the page.');
+                }
+
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                
+                let fullText = '';
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    
+                    // More robust text extraction
+                    const pageText = textContent.items
+                        .map(item => item.str)
+                        .filter(text => text.trim().length > 0)
+                        .join(' ');
+                    
+                    fullText += pageText + '\n';
+                }
+
+                // Validate extracted text
+                if (fullText.trim().length === 0) {
+                    throw new Error('No text could be extracted from the PDF');
+                }
+
+                extractedText = fullText;
+                
+                // Hide loading indicator
+                loadingIndicator.style.display = 'none';
+                
+                // Show quiz generator
+                quizGenerator.style.display = 'block';
+                
+                alert('Text extracted successfully! You can now generate a quiz.');
+            } catch (error) {
+                console.error('Error extracting PDF text:', error);
+                
+                // Hide loading indicator
+                loadingIndicator.style.display = 'none';
+                
+                // Detailed error handling
+                if (error.name === 'MissingPDFException') {
+                    alert('The PDF file appears to be damaged or encrypted.');
+                } else if (error.name === 'InvalidPDFException') {
+                    alert('The file is not a valid PDF.');
+                } else {
+                    alert('Failed to extract text from PDF: ' + error.message);
+                }
+            }
+        }
+
+        // Function to generate alternative options
+        function generateOptions(originalSentence, sentences) {
+            // Create an array of potential options
+            const options = [
+                originalSentence,
+                ...sentences
+                    .filter(s => s !== originalSentence && s.length > 30)
+                    .slice(0, 3)
+            ];
+
+            // Shuffle the options
+            for (let i = options.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [options[i], options[j]] = [options[j], options[i]];
+            }
+
+            return options.map((option, index) => ({
+                text: option,
+                value: String.fromCharCode(97 + index) // a, b, c, d
+            }));
+        }
+
+        // Quiz Generation
+        function generateQuiz() {
+            const questionCount = document.getElementById('question-count').value;
+            const questionType = document.getElementById('question-type').value;
+            const quizContainer = document.getElementById('generated-quiz');
+            quizContainer.innerHTML = '';
+            quizQuestions = [];
+
+            // More robust sentence splitting
+            const sentences = extractedText
+                .split(/[.!?]+/)
+                .map(s => s.trim())
+                .filter(s => s.length > 50);
+            
+            // Ensure we have enough sentences
+            if (sentences.length < questionCount) {
+                alert(`Not enough unique sentences to generate ${questionCount} questions. Please upload a longer PDF.`);
+                return;
+            }
+
+            for (let i = 0; i < questionCount; i++) {
+                const questionDiv = document.createElement('div');
+                questionDiv.className = 'quiz-question';
+
+                if (questionType === 'multiple-choice') {
+                    // Ensure unique sentence selection
+                    const randomSentence = sentences.splice(Math.floor(Math.random() * sentences.length), 1)[0];
+                    const question = `What is the main idea of: "${randomSentence}"?`;
+
+                    // Generate options
+                    const options = generateOptions(randomSentence, sentences);
+                    const correctOptionIndex = options.findIndex(opt => opt.text === randomSentence);
+
+                    // Create options HTML
+                    const optionsHTML = options.map(option => 
+                        `<label><input type="radio" name="q${i}" value="${option.value}"> 
+                            ${option.text.substring(0, 100)}${option.text.length > 100 ? '...' : ''}
+                         </label>`
+                    ).join('');
+
+                    questionDiv.innerHTML = `
+                        <h3>Question ${i + 1}</h3>
+                        <p>${question}</p>
+                        <div class="quiz-options">
+                            ${optionsHTML}
+                        </div>
+                    `;
+
+                    quizQuestions.push({ 
+                        correctAnswer: options[correctOptionIndex].value, 
+                        originalSentence: randomSentence 
+                    });
+                } else if (questionType === 'true-false') {
+                    // Ensure unique sentence selection
+                    const randomSentence = sentences.splice(Math.floor(Math.random() * sentences.length), 1)[0];
+                    const trueStatement = Math.random() > 0.5;
+                    const question = trueStatement
+                        ? `Is the following statement true? "${randomSentence}"`
+                        : `Is the following statement true? "${randomSentence} (with a deliberate modification)"`;
+
+                    questionDiv.innerHTML = `
+                        <h3>Question ${i + 1}</h3>
+                        <p>${question}</p>
+                        <div class="quiz-options">
+                            <label><input type="radio" name="q${i}" value="true"> True</label>
+                            <label><input type="radio" name="q${i}" value="false"> False</label>
+                        </div>
+                    `;
+
+                    quizQuestions.push({ 
+                        correctAnswer: trueStatement ? 'true' : 'false', 
+                        originalSentence: randomSentence 
+                    });
+                }
+
+                quizContainer.appendChild(questionDiv);
+            }
+
+            const submitButton = document.createElement('button');
+            submitButton.textContent = 'Submit Quiz';
+            submitButton.onclick = submitQuiz;
+            quizContainer.appendChild(submitButton);
+        }
+
+        // Submit Quiz
+        function submitQuiz() {
+            const quizResults = document.getElementById('quiz-results');
+            quizResults.innerHTML = '<h2>Quiz Results</h2>';
+            quizResults.style.display = 'block';
+
+            let correctAnswers = 0;
+
+            quizQuestions.forEach((question, index) => {
+                const selectedOption = document.querySelector(`input[name="q${index}"]:checked`);
+                const resultDiv = document.createElement('div');
+
+                if (selectedOption) {
+                    if (selectedOption.value === question.correctAnswer) {
+                        correctAnswers++;
+                        resultDiv.innerHTML = `
+                            <p style="color: green;">Question ${index + 1}: Correct!</p>
+                            <small>Original Context: ${question.originalSentence}</small>
+                        `;
+                    } else {
+                        resultDiv.innerHTML = `
+                            <p style="color: red;">Question ${index + 1}: Incorrect.</p>
+                            <small>Original Context: ${question.originalSentence}</small>
+                        `;
+                    }
+                } else {
+                    resultDiv.innerHTML = `
+                        <p style="color: orange;">Question ${index + 1}: Not Attempted.</p>
+                        <small>Original Context: ${question.originalSentence}</small>
+                    `;
+                }
+
+                quizResults.appendChild(resultDiv);
+            });
+
+            const scoreDiv = document.createElement('div');
+            scoreDiv.innerHTML = `
+                <h3>Your Score: ${correctAnswers} / ${quizQuestions.length}</h3>
+                <p>Percentage: ${(correctAnswers / quizQuestions.length * 100).toFixed(2)}%</p>
+            `;
+            quizResults.appendChild(scoreDiv);
+        }
+    </script>
+</body>
+</html>
