@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Quiz Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            margin: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            background: #f5f5f5;
+        }
+        .current-question {
+            font-size: 1.2em;
+            margin: 20px;
+            padding: 20px;
+            border: 2px solid #007bff;
+            border-radius: 8px;
+            background: white;
+        }
+        .options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .option {
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #loading, #quiz-controls, #current-question-container {
+            display: none;
+        }
+        .key-hint {
+            color: #666;
+            font-size: 0.9em;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Speech Quiz Generator</h1>
+    
+    <div class="container">
+        <input type="file" id="file-input" accept=".pdf" onChange="extractText()">
+        <div id="loading">Processing PDF...</div>
+    </div>
+
+    <div id="quiz-controls" class="container">
+        <h2>Generate Quiz</h2>
+        <div>
+            <label for="question-type">Question Type:</label>
+            <select id="question-type">
+                <option value="multiple-choice">Multiple Choice</option>
+                <option value="true-false">True/False</option>
+            </select>
+        </div>
+        <button onclick="startQuiz()">Start Quiz</button>
+    </div>
+
+    <div id="current-question-container" class="container">
+        <div id="question-number"></div>
+        <div id="current-question" class="current-question"></div>
+        <div id="options" class="options"></div>
+        <div class="key-hint">Press 1-4 on your keyboard to select your answer</div>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        }
+
+        let extractedText = '';
+        let currentQuestions = [];
+        let currentQuestionIndex = 0;
+        let userAnswers = [];
+        let speechSynth = window.speechSynthesis;
+        let speaking = false;
+
+        async function extractText() {
+            const fileInput = document.getElementById('file-input');
+            const loadingIndicator = document.getElementById('loading');
+            const quizControls = document.getElementById('quiz-controls');
+            
+            extractedText = '';
+            quizControls.style.display = 'none';
+            loadingIndicator.style.display = 'block';
+
+            try {
+                const file = fileInput.files[0];
+                if (!file) throw new Error('Please select a PDF file');
+
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                
+                let textChunks = [];
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items
+                        .map(item => item.str)
+                        .filter(text => text.trim().length > 0)
+                        .join(' ');
+                    textChunks.push(pageText);
+                }
+
+                extractedText = textChunks.join('\n');
+                if (!extractedText.trim()) throw new Error('No text could be extracted');
+
+                loadingIndicator.style.display = 'none';
+                quizControls.style.display = 'block';
+            } catch (error) {
+                alert(error.message);
+                loadingIndicator.style.display = 'none';
+            }
+        }
+
+        function generateQuestions() {
+            const questionType = document.getElementById('question-type').value;
+            const sentences = extractedText
+                .split(/[.!?]+/)
+                .map(s => s.trim())
+                .filter(s => s.length > 50);
+
+            currentQuestions = [];
+            const questionCount = 5; // Fixed number of questions
+
+            for (let i = 0; i < questionCount; i++) {
+                const randomSentence = sentences[Math.floor(Math.random() * sentences.length)];
+                
+                if (questionType === 'multiple-choice') {
+                    const otherSentences = sentences.filter(s => s !== randomSentence);
+                    const options = [
+                        randomSentence,
+                        ...otherSentences
+                            .sort(() => Math.random() - 0.5)
+                            .slice(0, 3)
+                    ].sort(() => Math.random() - 0.5);
+
+                    currentQuestions.push({
+                        text: "Which statement is from the text?",
+                        options: options,
+                        correctAnswer: options.indexOf(randomSentence) + 1,
+                        originalSentence: randomSentence
+                    });
+                } else {
+                    currentQuestions.push({
+                        text: "Is this statement from the text?",
+                        statement: randomSentence,
+                        options: ['True', 'False'],
+                        correctAnswer: 1,
+                        originalSentence: randomSentence
+                    });
+                }
+            }
+        }
+
+        function speakText(text) {
+            return new Promise((resolve) => {
+                if (speaking) {
+                    speechSynth.cancel();
+                }
+
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.onend = () => {
+                    speaking = false;
+                    resolve();
+                };
+                speaking = true;
+                speechSynth.speak(utterance);
+            });
+        }
+
+        async function displayQuestion(index) {
+            const question = currentQuestions[index];
+            const container = document.getElementById('current-question-container');
+            const questionNumber = document.getElementById('question-number');
+            const questionElement = document.getElementById('current-question');
+            const optionsElement = document.getElementById('options');
+
+            questionNumber.textContent = `Question ${index + 1} of ${currentQuestions.length}`;
+            questionElement.textContent = question.text;
+            
+            let optionsHtml = '';
+            const options = question.options;
+            options.forEach((option, i) => {
+                optionsHtml += `
+                    <div class="option">
+                        ${i + 1}. ${option.substring(0, 100)}${option.length > 100 ? '...' : ''}
+                    </div>
+                `;
+            });
+            optionsElement.innerHTML = optionsHtml;
+            container.style.display = 'block';
+
+            // Speak the question and options
+            await speakText(question.text);
+            for (let i = 0; i < options.length; i++) {
+                await speakText(`Option ${i + 1}: ${options[i]}`);
+            }
+        }
+
+        function startQuiz() {
+            document.getElementById('quiz-controls').style.display = 'none';
+            currentQuestionIndex = 0;
+            userAnswers = [];
+            generateQuestions();
+            displayQuestion(0);
+
+            // Add keyboard listener
+            document.addEventListener('keypress', handleKeyPress);
+        }
+
+        function handleKeyPress(event) {
+            const key = parseInt(event.key);
+            if (key >= 1 && key <= 4) {
+                submitAnswer(key);
+            }
+        }
+
+        function submitAnswer(answer) {
+            userAnswers.push(answer);
+            
+            if (currentQuestionIndex < currentQuestions.length - 1) {
+                currentQuestionIndex++;
+                displayQuestion(currentQuestionIndex);
+            } else {
+                showResults();
+            }
+        }
+
+        function showResults() {
+            document.getElementById('current-question-container').style.display = 'none';
+            document.removeEventListener('keypress', handleKeyPress);
+
+            const resultsDiv = document.getElementById('results');
+            let correctCount = 0;
+
+            let resultsHtml = '<h2>Quiz Results</h2>';
+            userAnswers.forEach((answer, index) => {
+                const question = currentQuestions[index];
+                const isCorrect = answer === question.correctAnswer;
+                if (isCorrect) correctCount++;
+
+                resultsHtml += `
+                    <div style="margin: 10px; padding: 10px; border: 1px solid ${isCorrect ? 'green' : 'red'}">
+                        <p>Question ${index + 1}: ${isCorrect ? 'Correct' : 'Incorrect'}</p>
+                        <p>Your answer: ${answer}</p>
+                        <p>Correct answer: ${question.correctAnswer}</p>
+                        <p><small>Original text: "${question.originalSentence}"</small></p>
+                    </div>
+                `;
+            });
+
+            resultsHtml += `
+                <h3>Final Score: ${correctCount} out of ${currentQuestions.length}</h3>
+                <p>Percentage: ${(correctCount / currentQuestions.length * 100).toFixed(1)}%</p>
+                <button onclick="location.reload()">Start New Quiz</button>
+            `;
+
+            resultsDiv.innerHTML = resultsHtml;
+        }
+    </script>
+</body>
+</html>

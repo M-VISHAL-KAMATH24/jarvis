@@ -197,7 +197,8 @@
             'what is your name': 'I\'m a voice chatbot. You can just call me Bot!',
             'default': 'I didn\'t quite understand that. Could you rephrase?',
             'thankyou': 'You are welcome!',
-            'can you solve me the question': 'Of course! What type of question would you like help with?'
+            'can you solve me the question': 'Of course! What type of question would you like help with?',
+            
         };
 
         function addMessage(message, type = 'bot-message') {
@@ -207,7 +208,7 @@
             chatMessages.appendChild(messageElement);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-        
+
 
         function speakMessage(message) {
             const utterance = new SpeechSynthesisUtterance(message);
