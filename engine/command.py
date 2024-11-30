@@ -33,9 +33,12 @@ def takecommand():
         print(f"user said: {query}")
         eel.DisplayMessage(query)
         time.sleep(2)
-       
-    except Exception as e:
-        return ""
+    except sr.UnknownValueError:
+      print("Google Speech Recognition could not understand the audio.")
+    eel.DisplayMessage("I didn't catch that. Could you repeat?")
+    return ""
+    
+ 
     
     return query.lower()
 
